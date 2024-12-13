@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <title>金沢観光ルート詳細化マップ</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link href="style.css" rel="stylesheet" type="text/css">
+    <title>地図表示プログラム</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.3/dist/leaflet.css" />
+</head>
+
+<header>
+    <div class="logo">
+        <img src="https://town-illust.com/e/town0441/s512_town0441_0.png" alt="" width="100">
+        <h1>金沢観光ルート詳細化マップ</h1>
+    </div>
+</header>
+
+<hr>
+
+<body>
+    <h3>出発地点と目的地を選択してください</h3>
+    <div class="controls">
+        <label for="start">出発地点:</label>
+        <select id="start">
+            <option value="36.560815336866, 136.65823380585">21世紀美術館</option>
+            <option value="36.5780818, 136.6478206">金沢駅</option>
+            <option value="36.571630, 136.656680">近江町市場</option>
+            <option value="36.564246764638206, 136.65003228925497">長町武家屋敷</option>
+            <option value="36.562140121241,136.66240338447">兼六園</option>
+            <option value="36.56488934,136.65920906">金沢城公園</option>
+            <option value="36.572443963307,136.66712469344">ひがし茶屋街</option>
+        </select>
+
+        <label for="end">目的地:</label>
+        <select id="end">
+            <option value="36.5780818, 136.6478206">金沢駅</option>
+            <option value="36.555384016112086, 136.64899469352378">妙立寺</option>
+            <option value="36.571630, 136.656680">近江町市場</option>
+            <option value="36.564246764638206, 136.65003228925497">長町武家屋敷</option>
+            <option value="36.562140121241,136.66240338447">兼六園</option>
+            <option value="36.56488934,136.65920906">金沢城公園</option>
+            <option value="36.572443963307,136.66712469344">ひがし茶屋街</option>
+        </select>
+
+        <button type="button" onclick="showMap()">地図を表示</button>
+        <button type="button" onclick="clearHistory()">履歴をクリア</button>
+    </div>
+
+    <hr>
+
+    <div id="routeHistory">
+        <h3>ルート履歴</h3>
+        <ul id="historyList"></ul>
+    </div>
+    <hr>
+    <h4>ルートの詳細情報</h4>
+    <div id="routeDetails">
+        <p id="routeDescription">ルートに関連する情報がここに表示されます。</p>
+        <img id="routeImage" src="" alt="ルート画像" style="display:none; max-width: 100%; height: auto;">
+    </div>
+    
+
+    <hr>
+    <br>
+
+    <div id="map"></div>
+
+    <!-- Leaflet.jsの読み込み -->
+    <script src="https://unpkg.com/leaflet@1.9.3/dist/leaflet.js"></script>
+
+    <script>
+        let map = L.map('map').setView([35.6762, 139.6503], 7); // 東京を中心に設定
+        
+        // OSMタイルを使用
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            maxZoom: 18,
+            attribution: '© OpenStreetMap'
+        }).addTo(map);
+
+        // ルート描画用のレイヤー
+        let routeLayer = null;
+
+        function saveRouteToHistory(start, end) {
+        const routeHistory = JSON.parse(localStorage.getItem("routeHistory")) || [];
+        routeHistory.unshift({ start, end });
+        localStorage.setItem("routeHistory", JSON.stringify(routeHistory.slice(0, 10)));
+        }
+
+        function renderHistory() {
+        const historyList = document.getElementById('historyList');
+        const routeHistory = JSON.parse(localStorage.getItem("routeHistory")) || [];
+        historyList.innerHTML = ""; // 既存の内容をクリア
+        routeHistory.forEach((route, index) => {
+            const li = document.createElement("li");
+            li.textContent = `${index + 1}. 出発: ${route.start}, 目的地: ${route.end}`;
+            historyList.appendChild(li);
+        });
+        }
+
+        function clearHistory() {
+        localStorage.removeItem("routeHistory");
+        renderHistory();
+        }
+        
+        // OpenRouteServiceのルート計算関数
+        async function showMap() {
+            // 選択された出発地点と目的地を取得
+            const start = document.getElementById('start').value.split(',');
+            const end = document.getElementById('end').value.split(',');
+
+            saveRouteToHistory(start, end);
+            renderHistory();
+        
+            const apiKey = '5b3ce3597851110001cf6248700fd71a9d304f3daadf87723a56f5a8';  // 取得したAPIキーを入力
+            const url = `https://api.openrouteservice.org/v2/directions/driving-car?api_key=${apiKey}&start=${start[1]},${start[0]}&end=${end[1]},${end[0]}`;
+
+            try {
+                const response = await fetch(url);
+                if (!response.ok) throw new Error(`HTTPエラー: ${response.status}`);
+                const data = await response.json();
+
+                // APIレスポンスを確認
+                console.log(data);
+
+                // 必要なプロパティが存在するかチェック
+                if (!data.features || data.features.length === 0) {
+                    throw new Error('ルートデータがありません');
+                }
+
+                // GeoJSON形式のルートデータを取得
+                const coordinates = data.features[0].geometry.coordinates.map(coord => [coord[1], coord[0]]);
+
+                // 既にルートが表示されている場合は削除
+                if (routeLayer) {
+                    map.removeLayer(routeLayer);
+                }
+
+                // 新しいルートを表示
+                routeLayer = L.polyline(coordinates, { color: 'blue', weight: 5 }).addTo(map);
+
+                // 地図の表示範囲をルートに合わせる
+                map.fitBounds(routeLayer.getBounds());
+            } catch (error) {
+                console.error('ルートを取得できませんでした。エラー:', error);
+                alert('ルートを取得できませんでした。エラー: ' + error.message);
+            }
+        }
+
+        document.addEventListener("DOMContentLoaded", () => {
+        renderHistory();
+        });
+    </script>
+        
+
+    
+
+    <hr>
+
+    <table border="4">
+        <dd></dd><h4>現在検索可能なルート</h4></dd>
+        <tr></tr><th>No</th><th width="120">出発地点 </th><th width="120">目的地</th></tr>
+        <tr><th>1</th><td>21世紀美術館</td><td>金沢駅</td></tr>
+        <tr><th>2</th><td>金沢駅</td><td>妙立寺</td></tr>
+        <tr><th>3</th><td>金沢駅</td><td>近江町市場</td></tr>
+        <tr><th>4</th><td>近江町市場</td><td>長町武家屋敷</td></tr>
+        <tr><th>5</th><td>長町武家屋敷</td><td>21世紀美術館</td></tr>
+        <tr><th>6</th><td>21世紀美術館</td><td>兼六園</td></tr>
+        <tr><th>7</th><td>兼六園</td><td>金沢城公園</td></tr>
+        <tr><th>8</th><td>金沢城公園</td><td>ひがし茶屋街</td></tr>
+        <tr><th>9</th><td>ひがし茶屋街</td><td>ひがし茶屋休憩館</td></tr>
+    </table>
+   
+    <ol>
+        <li id = "ti1">使用したライブラリ</li>
+        <ul>
+            <li>Leaflet</li>
+        </ul>
+        <br>
+        <li id = "ti1">関連サイト</li>
+        <ul>
+            <li><a href="https://www.kanazawa-kankoukyoukai.or.jp/congestion-map/" target="_blank">金沢快適度観光マップ</a>（混雑状況の予測）</li>
+            <li><a href="https://arj.hokutetsu.co.jp/timetable/pathway.php" target="_blank">北陸鉄道</a>（時刻・運賃検索）</li>
+            <li><a href="https://www.kanazawa-kankoukyoukai.or.jp/gourmet/index.html" taget="_blank">金沢旅物語</a>（グルメ・お土産）</li>
+            
+        </ul>
+
+    </ol>
+
+
+</body>
+</html>
